@@ -9,7 +9,7 @@ import {
 import { WebPubSubServiceClient } from "@azure/web-pubsub";
 
 const PORT = env.PORT ?? 8081;
-const HUB_NAME = env.HUB_NAME ?? "images-gen";
+const HUB_NAME = env.HUB_NAME ?? "imagesgen";
 const WPS_QS = env.WPS_QS;
 const QUEUE_NAME = env.QUEUE_NAME ?? "queue";
 const QUEUE_TOPIC_TO_GENERATE = env.QUEUE_TOPIC_TO_GENERATE ?? "to-generate";

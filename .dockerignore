@@ -1,0 +1,10 @@
+dist
+node_modules
+.editorconfig
+.env
+.env.example
+.gitignore
+README.md
+dapr
+.git
+.idea
