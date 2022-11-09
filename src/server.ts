@@ -103,16 +103,19 @@ async function main() {
     exit(1);
   }
   const handler = new WebPubSubEventHandler(HUB_NAME, {
-    /*handleConnect: (req, res) => {
-      // auth the connection and set the userId of the connection
-      res.success({
-        userId: "<userId>",
+    path: '/eventhandler',
+    onConnected: async req => {
+      console.log(`${req.context.userId} connected`);
+      await serviceClient.sendToAll({
+        type: "system",
+        message: `${req.context.userId} joined`
       });
-    },*/
+    },
     handleUserEvent: onUserMessage,
     //allowedEndpoints: ["https://<yourAllowedService>.webpubsub.azure.com"],
   });
   app.use(handler.getMiddleware());
+  console.log(`Handler path : "${handler.path}"`)
   app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 }
 
