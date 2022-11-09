@@ -69,6 +69,16 @@ app.get("/test", async (req, res) => {
   res.send("OK");
 });
 
+app.get('/dapr/subscribe', (_req, res) => {
+  res.json([
+    {
+      pubsubname: "queue",
+      topic: "generated",
+      route: "/newImage"
+    }
+  ]);
+});
+
 app.post("/newImage", async (req, res) => {
   console.log("new image received");
   console.log(JSON.stringify(req.body));
