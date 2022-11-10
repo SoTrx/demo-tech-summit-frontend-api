@@ -1,4 +1,5 @@
 export interface IImageReply {
-    rId: string
+    uId: string
     imageId: string
+    requestId: string
 }

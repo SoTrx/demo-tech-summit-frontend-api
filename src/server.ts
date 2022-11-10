@@ -7,7 +7,6 @@ import {
   WebPubSubEventHandler,
 } from "@azure/web-pubsub-express";
 import { WebPubSubServiceClient } from "@azure/web-pubsub";
-
 const PORT = env.PORT ?? 8081;
 const HUB_NAME = env.HUB_NAME ?? "imagesgen";
 const WPS_QS = env.WPS_QS;
@@ -19,10 +18,9 @@ const app = express();
 app.use(json({ type: "application/*+json" }));
 
 const serviceClient = new WebPubSubServiceClient(WPS_QS, HUB_NAME);
-import {  DaprClient } from "@dapr/dapr";
+import { DaprClient } from "@dapr/dapr";
 import { IImageReply } from "./server-api";
 import { exit } from "process";
-
 
 const daprClient = new DaprClient();
 console.log(process.env.DAPR_HTTP_PORT);
@@ -32,16 +30,21 @@ async function onNewImage(data: IImageReply) {
     console.log("Ignored event with empty payload");
     return;
   }
-  if(typeof data === "string"){
+  if (typeof data === "string") {
     console.log("Received string data");
-    data = JSON.parse(data)
+    data = JSON.parse(data);
   }
   // The library parses JSON when possible.
   console.log(
     `[Dapr-JS][Example] Received on subscription: ${JSON.stringify(data)}`
   );
-  console.log(`user id : "${data.rId}", imageId: ${data.imageId}`)
-  await serviceClient.sendToUser(data.rId, { imageId: data.imageId });
+  console.log(
+    `user id : "${data.uId}", imageId: ${data.imageId}, requestId: ${data.requestId}`
+  );
+  await serviceClient.sendToUser(data.uId, {
+    imageId: data.imageId,
+    requestId: data.requestId,
+  });
 
   /*const
  if( await serviceClient.userExists(data.rId)) {
@@ -52,14 +55,28 @@ async function onNewImage(data: IImageReply) {
   await serviceClient.sendToAll(JSON.stringify(data))*/
 }
 
+interface IImgRequest {
+  prompt: string
+  requestId: string
+}
+
 async function onUserMessage(
   req: UserEventRequest,
   res: UserEventResponseHandler
 ) {
   if (req.context.eventName === "message") {
-    // TODO : Send rq to queue
-    const payload = { rId: req.context.userId, input: req.data };
+    let imgReq: IImgRequest = req.data as IImgRequest;
     console.log(JSON.stringify(req));
+    if (typeof req.data === "string") {
+      try {
+        imgReq = JSON.parse(req.data);
+      } catch (e) {
+        console.warn(`Cannot parse request payload for ${imgReq}, aborting`);
+        return;
+      }
+    }
+
+    const payload = { uId: req.context.userId, input: imgReq, rId: imgReq.requestId};
     console.log(JSON.stringify(payload));
     await daprClient.pubsub.publish(
       QUEUE_NAME,
@@ -82,13 +99,13 @@ app.get("/test", async (req, res) => {
   res.send("OK");
 });
 
-app.get('/dapr/subscribe', (_req, res) => {
+app.get("/dapr/subscribe", (_req, res) => {
   res.json([
     {
       pubsubname: "queue",
       topic: "generated",
-      route: "/newImage"
-    }
+      route: "/newImage",
+    },
   ]);
 });
 
@@ -116,19 +133,19 @@ async function main() {
     exit(1);
   }
   const handler = new WebPubSubEventHandler(HUB_NAME, {
-    path: '/eventhandler',
-    onConnected: async req => {
+    path: "/eventhandler",
+    onConnected: async (req) => {
       console.log(`${req.context.userId} connected`);
       await serviceClient.sendToAll({
         type: "system",
-        message: `${req.context.userId} joined`
+        message: `${req.context.userId} joined`,
       });
     },
     handleUserEvent: onUserMessage,
     //allowedEndpoints: ["https://<yourAllowedService>.webpubsub.azure.com"],
   });
   app.use(handler.getMiddleware());
-  console.log(`Handler path : "${handler.path}"`)
+  console.log(`Handler path : "${handler.path}"`);
   app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 }
 
