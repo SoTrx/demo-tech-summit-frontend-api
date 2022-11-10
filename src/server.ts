@@ -56,8 +56,8 @@ async function onNewImage(data: IImageReply) {
 }
 
 interface IImgRequest {
-  prompt: string
-  requestId: string
+  prompt: string;
+  requestId: string;
 }
 
 async function onUserMessage(
@@ -76,7 +76,11 @@ async function onUserMessage(
       }
     }
 
-    const payload = { uId: req.context.userId, input: imgReq, rId: imgReq.requestId};
+    const payload = {
+      uId: req.context.userId,
+      input: imgReq.prompt,
+      rId: imgReq.requestId,
+    };
     console.log(JSON.stringify(payload));
     await daprClient.pubsub.publish(
       QUEUE_NAME,
@@ -92,7 +96,7 @@ app.get("/test", async (req, res) => {
     {
       // @ts-ignore
       context: { userId: "test", eventName: "message" },
-      data: " A duck flying in the sky",
+      data: { requestId: "test", prompt: "A duck flying in the sky" },
     },
     { success: () => true }
   );
