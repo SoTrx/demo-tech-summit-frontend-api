@@ -36,9 +36,9 @@ async function onNewImage(data: IImageReply) {
   console.log(
     `[Dapr-JS][Example] Received on subscription: ${JSON.stringify(data)}`
   );
-  if( await serviceClient.userExists(data.rId)) {
+ /* if( await serviceClient.userExists(data.rId)) {
     await serviceClient.sendToUser(data.rId, { id: data.imageId });
-  }
+  }*/
   await serviceClient.sendToAll({ id: data.imageId, rId: data.rId })
 }
 
