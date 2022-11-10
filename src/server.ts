@@ -39,7 +39,9 @@ async function onNewImage(data: IImageReply) {
  /* if( await serviceClient.userExists(data.rId)) {
     await serviceClient.sendToUser(data.rId, { id: data.imageId });
   }*/
-  await serviceClient.sendToAll({ id: data.imageId, rId: data.rId })
+  /*const payload = JSON.stringify({ id: data.imageId, rId: data.rId })
+  console.log(`Sending to all : ${payload}`)*/
+  await serviceClient.sendToAll(JSON.stringify(data))
 }
 
 async function onUserMessage(
