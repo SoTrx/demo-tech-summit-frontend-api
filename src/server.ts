@@ -32,16 +32,24 @@ async function onNewImage(data: IImageReply) {
     console.log("Ignored event with empty payload");
     return;
   }
+  if(typeof data === "string"){
+    console.log("Received string data");
+    data = JSON.parse(data)
+  }
   // The library parses JSON when possible.
   console.log(
     `[Dapr-JS][Example] Received on subscription: ${JSON.stringify(data)}`
   );
- /* if( await serviceClient.userExists(data.rId)) {
+  console.log(`user id : "${data.rId}", imageId: ${data.imageId}`)
+  await serviceClient.sendToUser(data.rId, { imageId: data.imageId });
+
+  /*const
+ if( await serviceClient.userExists(data.rId)) {
     await serviceClient.sendToUser(data.rId, { id: data.imageId });
-  }*/
+  }
   /*const payload = JSON.stringify({ id: data.imageId, rId: data.rId })
-  console.log(`Sending to all : ${payload}`)*/
-  await serviceClient.sendToAll(JSON.stringify(data))
+  console.log(`Sending to all : ${payload}`)
+  await serviceClient.sendToAll(JSON.stringify(data))*/
 }
 
 async function onUserMessage(
