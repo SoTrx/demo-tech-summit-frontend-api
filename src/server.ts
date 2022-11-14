@@ -1,156 +1,185 @@
-import express from "express";
+import express, { RequestHandler } from "express";
 import { json } from "express";
 import { env } from "process";
 import {
+  ConnectedRequest,
   UserEventRequest,
   UserEventResponseHandler,
   WebPubSubEventHandler,
 } from "@azure/web-pubsub-express";
 import { WebPubSubServiceClient } from "@azure/web-pubsub";
-const PORT = env.PORT ?? 8081;
-const HUB_NAME = env.HUB_NAME ?? "imagesgen";
-const WPS_QS = env.WPS_QS;
-const QUEUE_NAME = env.QUEUE_NAME ?? "queue";
-const QUEUE_TOPIC_TO_GENERATE = env.QUEUE_TOPIC_TO_GENERATE ?? "to-generate";
-const QUEUE_TOPIC_GENERATED = env.QUEUE_TOPIC_GENERATED ?? "generated";
-
-const app = express();
-app.use(json({ type: "application/*+json" }));
-
-const serviceClient = new WebPubSubServiceClient(WPS_QS, HUB_NAME);
 import { DaprClient } from "@dapr/dapr";
-import { IImageReply } from "./server-api";
-import { exit } from "process";
+import {
+  IImageReply,
+  IImgRequest,
+  IQueueConfig,
+  IWebPubSubConfig,
+} from "./server-api";
 
+/** Env variables */
+// Main server port
+const PORT = env.PORT ?? 8081;
+// WebPubSub hub
+const WPS_CONFIG: IWebPubSubConfig = {
+  hubName: env.HUB_NAME ?? "imagesgen",
+  qs: env.WPS_QS,
+};
+// Queue
+const QUEUE_CONFIG: IQueueConfig = {
+  name: env.QUEUE_NAME ?? "queue",
+  inTopic: env.QUEUE_TOPIC_TO_GENERATE ?? "to-generate",
+  outTopic: env.QUEUE_TOPIC_GENERATED ?? "generated",
+};
+// Dapr name
 const daprClient = new DaprClient();
-console.log(process.env.DAPR_HTTP_PORT);
+const daprImgSub = [
+  {
+    pubsubname: QUEUE_CONFIG.name,
+    topic: QUEUE_CONFIG.inTopic,
+    route: "/newImage",
+  },
+];
 
-async function onNewImage(data: IImageReply) {
-  if (data === undefined) {
+// A sample image request used in testing
+const sampleImgReq: IImgRequest = {
+  requestId: "test",
+  prompt: "A duck flying in the sky",
+};
+
+async function main() {
+  const app = express();
+  // This allows express to parse Cloudevents
+  app.use(json({ type: "application/*+json" }));
+  // Azure Web PubSub is used to communicate with the client
+  // However, in some cases, this service can be used without
+  // a pubsub.
+  const isWPSEnabled = WPS_CONFIG.qs != undefined && WPS_CONFIG.qs !== "";
+  let wpsClient: WebPubSubServiceClient;
+  if (isWPSEnabled) {
+    wpsClient = new WebPubSubServiceClient(WPS_CONFIG.qs, WPS_CONFIG.hubName);
+    app.use(setupWpsHandler(wpsClient));
+  } else
+    console.error("Web pubsub QS is not defined. Web pubsub won't be used.");
+
+  /** Router **/
+  // Register dapr subscriptions
+  app.get("/dapr/subscribe", (_, res) => res.json(daprImgSub));
+  // Demo test endpoint
+  app.get("/test", async (_, res) => {
+    await handleImageRequest("test", sampleImgReq);
+    res.send("OK");
+  });
+  // Every new image generated will be handled by this endpoint
+  app.post("/newImage", async (req, res) => {
+    console.log("new image received");
+    console.log(JSON.stringify(req.body));
+    await handleImageReceived(req?.body?.data, wpsClient);
+    res.status(200).send("OK");
+  });
+  // Global error handler
+  app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).send({ status: "DROP" });
+  });
+
+  app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+}
+
+/**
+ * Setup a trap for events in Azure Web Pub Sub
+ * @param client
+ */
+function setupWpsHandler(client: WebPubSubServiceClient): RequestHandler {
+  // Handle a newly connected user
+  async function onNewUser(req: ConnectedRequest) {
+    console.log(`${req.context.userId} connected`);
+    await client.sendToAll({
+      type: "system",
+      message: `${req.context.userId} joined`,
+    });
+  }
+  // Handle a new user event, in this case a new image request
+  async function onNewRequest(
+    req: UserEventRequest,
+    res: UserEventResponseHandler
+  ) {
+    if (req.context.eventName === "message") {
+      const [imgReq, valid] = ensureParsed<IImgRequest>(req.data);
+      if (!valid) {
+        console.warn(`Invalid payload received ${JSON.stringify(req.data)}`);
+        return;
+      }
+      await handleImageRequest(req.context.userId, imgReq);
+    }
+    res.success();
+  }
+  const handler = new WebPubSubEventHandler(WPS_CONFIG.hubName, {
+    path: "/eventhandler",
+    onConnected: onNewUser,
+    handleUserEvent: onNewRequest,
+  });
+  return handler.getMiddleware();
+}
+
+/**
+ * Handle a new image generation request
+ * @param userId
+ * @param req
+ */
+async function handleImageRequest(userId: string, req: IImgRequest) {
+  const payload = {
+    uId: userId,
+    input: req.prompt,
+    rId: req.requestId,
+  };
+  await daprClient.pubsub.publish(
+    QUEUE_CONFIG.name,
+    QUEUE_CONFIG.inTopic,
+    payload
+  );
+}
+
+/**
+ * Reacts to a new image being generated. Forwards the image infos to
+ * the original asker using webpubsub
+ * @param payload
+ * @param wpsClient
+ */
+async function handleImageReceived(
+  payload: IImageReply,
+  wpsClient?: WebPubSubServiceClient
+) {
+  if (payload === undefined) {
     console.log("Ignored event with empty payload");
     return;
   }
+  const [imgData, valid] = ensureParsed<IImageReply>(payload);
+  if (!valid) {
+    console.warn(`Invalid payload received "${JSON.stringify(imgData)}"`);
+    return;
+  }
+  await wpsClient?.sendToUser(imgData.uId, {
+    imageId: imgData.imageId,
+    requestId: imgData.requestId,
+  });
+}
+
+/**
+ * Ensure the passed data in a valid object
+ * Return the parsed object and a boolean
+ * boolean is false if the object isn't valid
+ * @param data
+ */
+function ensureParsed<T>(data: any): [T, boolean] {
+  let res: T = data;
   if (typeof data === "string") {
-    console.log("Received string data");
-    data = JSON.parse(data);
-  }
-  // The library parses JSON when possible.
-  console.log(
-    `[Dapr-JS][Example] Received on subscription: ${JSON.stringify(data)}`
-  );
-  console.log(
-    `user id : "${data.uId}", imageId: ${data.imageId}, requestId: ${data.requestId}`
-  );
-  await serviceClient.sendToUser(data.uId, {
-    imageId: data.imageId,
-    requestId: data.requestId,
-  });
-
-  /*const
- if( await serviceClient.userExists(data.rId)) {
-    await serviceClient.sendToUser(data.rId, { id: data.imageId });
-  }
-  /*const payload = JSON.stringify({ id: data.imageId, rId: data.rId })
-  console.log(`Sending to all : ${payload}`)
-  await serviceClient.sendToAll(JSON.stringify(data))*/
-}
-
-interface IImgRequest {
-  prompt: string;
-  requestId: string;
-}
-
-async function onUserMessage(
-  req: UserEventRequest,
-  res: UserEventResponseHandler
-) {
-  if (req.context.eventName === "message") {
-    let imgReq: IImgRequest = req.data as IImgRequest;
-    console.log(JSON.stringify(req));
-    if (typeof req.data === "string") {
-      try {
-        imgReq = JSON.parse(req.data);
-      } catch (e) {
-        console.warn(`Cannot parse request payload for ${imgReq}, aborting`);
-        return;
-      }
+    try {
+      res = JSON.parse(data);
+    } catch (e) {
+      return [undefined, false];
     }
-
-    const payload = {
-      uId: req.context.userId,
-      input: imgReq.prompt,
-      rId: imgReq.requestId,
-    };
-    console.log(JSON.stringify(payload));
-    await daprClient.pubsub.publish(
-      QUEUE_NAME,
-      QUEUE_TOPIC_TO_GENERATE,
-      payload
-    );
   }
-  res.success();
-}
-app.get("/test", async (req, res) => {
-  console.log("test");
-  await onUserMessage(
-    {
-      // @ts-ignore
-      context: { userId: "test", eventName: "message" },
-      data: { requestId: "test", prompt: "A duck flying in the sky" },
-    },
-    { success: () => true }
-  );
-  res.send("OK");
-});
-
-app.get("/dapr/subscribe", (_req, res) => {
-  res.json([
-    {
-      pubsubname: "queue",
-      topic: "generated",
-      route: "/newImage",
-    },
-  ]);
-});
-
-app.post("/newImage", async (req, res) => {
-  console.log("new image received");
-  console.log(JSON.stringify(req.body));
-  try {
-    await onNewImage(req?.body?.data);
-    res.status(200).send("OK");
-  } catch (e) {
-    res.status(500).send({ status: "DROP" });
-  }
-});
-
-// Retrieve a token to access the web pubsub boker
-/*app.get("/negotiate", async (req, res) => {
-  const id = uuid();
-  const token = await serviceClient.getClientAccessToken({ userId: id });
-  res.json({ url: token.url, id });
-});*/
-
-async function main() {
-  if (env.WPS_QS === undefined) {
-    console.error("Web pubsub QS is not defined. Aborting.");
-    exit(1);
-  }
-  const handler = new WebPubSubEventHandler(HUB_NAME, {
-    path: "/eventhandler",
-    onConnected: async (req) => {
-      console.log(`${req.context.userId} connected`);
-      await serviceClient.sendToAll({
-        type: "system",
-        message: `${req.context.userId} joined`,
-      });
-    },
-    handleUserEvent: onUserMessage,
-    //allowedEndpoints: ["https://<yourAllowedService>.webpubsub.azure.com"],
-  });
-  app.use(handler.getMiddleware());
-  console.log(`Handler path : "${handler.path}"`);
-  app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+  return [res, true];
 }
 
 main().catch(console.error);
