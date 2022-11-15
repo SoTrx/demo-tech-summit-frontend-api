@@ -35,7 +35,7 @@ const daprClient = new DaprClient();
 const daprImgSub = [
   {
     pubsubname: QUEUE_CONFIG.name,
-    topic: QUEUE_CONFIG.inTopic,
+    topic: QUEUE_CONFIG.outTopic,
     route: "/newImage",
   },
 ];
