@@ -1,5 +1,3 @@
-import { env } from "process";
-
 export interface IImageReply {
   uId: string;
   imageId: string;

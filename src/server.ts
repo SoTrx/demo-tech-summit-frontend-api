@@ -1,5 +1,6 @@
 import express, { RequestHandler } from "express";
 import { json } from "express";
+import cors from "cors";
 import { env } from "process";
 import {
   ConnectedRequest,
@@ -46,8 +47,16 @@ const sampleImgReq: IImgRequest = {
   prompt: "A duck flying in the sky",
 };
 
+// A map containing all generated images payload
+// In a real deployment, this MUST be deleted, as it makes
+// this service stateful
+// This variable only exists to allow for a client to "long poll"
+// their request id
+const genBacklog: Map<string, Omit<IImageReply, "uId">> = new Map();
+
 async function main() {
   const app = express();
+  app.use(cors());
   // This allows express to parse Cloudevents
   app.use(json({ type: "application/*+json" }));
   // Azure Web PubSub is used to communicate with the client
@@ -64,11 +73,39 @@ async function main() {
   /** Router **/
   // Register dapr subscriptions
   app.get("/dapr/subscribe", (_, res) => res.json(daprImgSub));
-  // Demo test endpoint
-  app.get("/test", async (_, res) => {
-    await handleImageRequest("test", sampleImgReq);
+
+  // Demo async test endpoint
+  app.get("/test", async (req, res) => {
+    const payload = Object.assign(sampleImgReq, {
+      prompt: req.query?.prompt,
+      requestId: req.query?.rId,
+    });
+    console.log(payload);
+    await handleImageRequest("test", payload);
     res.send("OK");
   });
+
+  app.get("/lookup", (req, res) => {
+    const rId = req.query?.rId as string;
+    if (!rId) {
+      res.status(400).send("A requestId must be supplied");
+      return;
+    }
+    if (!genBacklog.has(rId)) {
+      console.log(`Lookup for request "${rId}: Not found"`);
+      console.log(`Content fo map"`);
+      console.log([...genBacklog.entries()]);
+      res.status(404).send("Not found");
+    } else {
+      console.log(
+        `Lookup for request "${rId}: Ok : ${JSON.stringify(
+          genBacklog.get(rId)
+        )}"`
+      );
+      res.status(200).send(genBacklog.get(rId));
+    }
+  });
+
   // Every new image generated will be handled by this endpoint
   app.post("/newImage", async (req, res) => {
     console.log("new image received");
@@ -158,10 +195,13 @@ async function handleImageReceived(
     console.warn(`Invalid payload received "${JSON.stringify(imgData)}"`);
     return;
   }
-  await wpsClient?.sendToUser(imgData.uId, {
+  const retPayload = {
     imageId: imgData.imageId,
     requestId: imgData.requestId,
-  });
+  };
+  console.log(`Image for rId ${imgData.requestId} received`);
+  genBacklog.set(imgData.requestId, retPayload);
+  await wpsClient?.sendToUser(imgData.uId, retPayload);
 }
 
 /**
