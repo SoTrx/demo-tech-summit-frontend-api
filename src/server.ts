@@ -76,10 +76,12 @@ async function main() {
 
   // Demo async test endpoint
   app.get("/test", async (req, res) => {
-    const payload = Object.assign(sampleImgReq, {
-      prompt: req.query?.prompt,
-      requestId: req.query?.rId,
-    });
+    const isEmpty = (s: string) => s == undefined || s == "";
+    const promptInput = req.query?.prompt as string;
+    const rIdInput = req.query?.rId as string;
+    const prompt = isEmpty(promptInput) ? sampleImgReq.prompt : promptInput;
+    const requestId = isEmpty(rIdInput) ? sampleImgReq.requestId : rIdInput;
+    const payload = Object.assign(sampleImgReq, { prompt, requestId });
     console.log(payload);
     await handleImageRequest("test", payload);
     res.send("OK");
