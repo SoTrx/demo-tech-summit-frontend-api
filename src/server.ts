@@ -56,8 +56,7 @@ const genBacklog: Map<string, Omit<IImageReply, "uId">> = new Map();
 
 async function main() {
   const app = express();
-  app.use(cors());
-  // This allows express to parse Cloudevents
+
   app.use(json({ type: "application/*+json" }));
   // Azure Web PubSub is used to communicate with the client
   // However, in some cases, this service can be used without
@@ -69,7 +68,8 @@ async function main() {
     app.use(setupWpsHandler(wpsClient));
   } else
     console.error("Web pubsub QS is not defined. Web pubsub won't be used.");
-
+  app.use(cors());
+  // This allows express to parse Cloudevents
   /** Router **/
   // Register dapr subscriptions
   app.get("/dapr/subscribe", (_, res) => res.json(daprImgSub));
