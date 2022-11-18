@@ -129,7 +129,7 @@ async function main() {
  * @param client
  */
 function setupWpsHandler(client: WebPubSubServiceClient): RequestHandler {
-  console.log("Setting up WPS handler")
+  console.log("Setting up WPS handler");
   // Handle a newly connected user
   async function onNewUser(req: ConnectedRequest) {
     console.log(`${req.context.userId} connected`);
@@ -143,6 +143,7 @@ function setupWpsHandler(client: WebPubSubServiceClient): RequestHandler {
     req: UserEventRequest,
     res: UserEventResponseHandler
   ) {
+    console.log("New request from ws")
     if (req.context.eventName === "message") {
       const [imgReq, valid] = ensureParsed<IImgRequest>(req.data);
       if (!valid) {
@@ -155,8 +156,8 @@ function setupWpsHandler(client: WebPubSubServiceClient): RequestHandler {
   }
   const handler = new WebPubSubEventHandler(WPS_CONFIG.hubName, {
     path: "/eventhandler",
-    onConnected: onNewUser,
-    handleUserEvent: onNewRequest,
+    onConnected: async (req: ConnectedRequest) => await onNewUser(req),
+    handleUserEvent: async (req, res) => await onNewRequest(req, res),
   });
   return handler.getMiddleware();
 }
