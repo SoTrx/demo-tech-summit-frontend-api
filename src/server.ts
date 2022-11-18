@@ -129,6 +129,7 @@ async function main() {
  * @param client
  */
 function setupWpsHandler(client: WebPubSubServiceClient): RequestHandler {
+  console.log("Setting up WPS handler")
   // Handle a newly connected user
   async function onNewUser(req: ConnectedRequest) {
     console.log(`${req.context.userId} connected`);
