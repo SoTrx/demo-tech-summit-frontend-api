@@ -68,14 +68,14 @@ async function main() {
     app.use(setupWpsHandler(wpsClient));
   } else
     console.error("Web pubsub QS is not defined. Web pubsub won't be used.");
-  app.use(cors());
+  //app.use(cors());
   // This allows express to parse Cloudevents
   /** Router **/
   // Register dapr subscriptions
   app.get("/dapr/subscribe", (_, res) => res.json(daprImgSub));
 
   // Demo async test endpoint
-  app.get("/test", async (req, res) => {
+  app.get("/test", cors(), async (req, res) => {
     const isEmpty = (s: string) => s == undefined || s == "";
     const promptInput = req.query?.prompt as string;
     const rIdInput = req.query?.rId as string;
@@ -87,7 +87,7 @@ async function main() {
     res.send("OK");
   });
 
-  app.get("/lookup", (req, res) => {
+  app.get("/lookup", cors(), (req, res) => {
     const rId = req.query?.rId as string;
     if (!rId) {
       res.status(400).send("A requestId must be supplied");
